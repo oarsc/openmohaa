@@ -1298,6 +1298,28 @@ void R_SetFullscreen(qboolean fullscreen) {
 }
 
 /*
+==================
+RE_WindowResized
+
+Update the renderer config when the drawable size changed. GL1 doesn't
+own any screen-sized resources, so only the config needs to be updated.
+==================
+*/
+static void RE_WindowResized(int width, int height, glconfig_t* glConfigOut) {
+	if (width <= 0 || height <= 0) {
+		return;
+	}
+
+	glConfig.vidWidth = width;
+	glConfig.vidHeight = height;
+	glConfig.windowAspect = (float)width / (float)height;
+
+	if (glConfigOut) {
+		*glConfigOut = glConfig;
+	}
+}
+
+/*
 ===============
 R_Register
 ===============
@@ -1872,6 +1894,7 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.RegisterSkin = RE_RegisterSkin;
 	re.RegisterShader = RE_RegisterShader;
 	re.RegisterShaderNoMip = RE_RegisterShaderNoMip;
+	re.RegisterShaderNoMipNearest = RE_RegisterShaderNoMipNearest;
 	re.LoadWorld = RE_LoadWorldMap;
 	re.SetWorldVisData = RE_SetWorldVisData;
 	re.EndRegistration = RE_EndRegistration;
@@ -1954,6 +1977,7 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 
 	re.SetMode = R_SetMode;
 	re.SetFullscreen = R_SetFullscreen;
+	re.WindowResized = RE_WindowResized;
 
 	re.GetShaderHeight = RE_GetShaderHeight;
 	re.GetShaderWidth = RE_GetShaderWidth;

@@ -152,5 +152,6 @@ void     UI_PrintConsole(const char *msg);
 void UI_Update(void);
 void UI_ServerLoaded(void);
 void UI_ResolutionChange(void);
+void UI_ResolutionReflow(void);
 void UI_KeyEvent(int key, unsigned int time);
 void UI_CharEvent(int ch);

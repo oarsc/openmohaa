@@ -1578,6 +1578,27 @@ void CL_ResetPureClientAtServer( void ) {
 	CL_AddReliableCommand( va("vdr"), qfalse );
 }
 
+#define WINDOW_RESIZE_REFLOW_INTERVAL 33   // ms, cheap UI pass while resizing
+#define WINDOW_RESIZE_SETTLE_TIME     100  // ms without changes before the full pass
+#define WINDOW_RESIZE_RESTART_DELAY   1000 // ms without changes before vid_restart (fallback)
+
+static int      s_windowResizeLastChange = 0;
+static int      s_windowResizeLastReflow = 0;
+static qboolean s_windowResizeUiPending  = qfalse;
+
+// Fallback for renderers that don't implement refexport_t::WindowResized
+// (currently GL2). The pre-existing behavior is kept: remember the new window
+// size as a custom video mode and restart the video subsystem when the resize
+// settles. The original video mode is restored afterwards so a resize doesn't
+// persist a new r_mode/r_customwidth/r_customheight in the config.
+static int      s_windowResizeRestartTime   = 0;
+static int      s_windowResizeRestartWidth  = 0;
+static int      s_windowResizeRestartHeight = 0;
+static qboolean s_windowResizeRestoreMode   = qfalse;
+static int      s_windowResizeSavedMode     = 0;
+static int      s_windowResizeSavedWidth    = 0;
+static int      s_windowResizeSavedHeight   = 0;
+
 qboolean CL_Allowed_Vid_Restart() {
 	return clc.state == CA_DISCONNECTED || clc.state == CA_ACTIVE;
 }
@@ -1631,6 +1652,28 @@ void CL_Vid_Restart_f( void ) {
 	CL_ShutdownCGame();
 	// initialize the renderer interface
 	CL_InitRef();
+
+	// Restore the video mode saved by the resize fallback, so that resizing a
+	// window doesn't persist a new r_mode/r_customwidth/r_customheight. This
+	// must happen after CL_InitRef(), which uses those cvars to create the
+	// window at the new size.
+	if ( s_windowResizeRestoreMode ) {
+		s_windowResizeRestoreMode = qfalse;
+
+		if ( Cvar_VariableIntegerValue( "r_mode" ) == -1
+			&& Cvar_VariableIntegerValue( "r_customwidth" ) == s_windowResizeRestartWidth
+			&& Cvar_VariableIntegerValue( "r_customheight" ) == s_windowResizeRestartHeight ) {
+			Cvar_SetValue( "r_mode", s_windowResizeSavedMode );
+			Cvar_SetValue( "r_customwidth", s_windowResizeSavedWidth );
+			Cvar_SetValue( "r_customheight", s_windowResizeSavedHeight );
+		}
+	}
+
+	// Any vid_restart cancels a pending automatic resize restart
+	s_windowResizeRestartTime   = 0;
+	s_windowResizeRestartWidth  = 0;
+	s_windowResizeRestartHeight = 0;
+
 	// initialize the UI
 	//CL_InitializeUI();
 	// initialize the ui library
@@ -3359,6 +3402,180 @@ void CL_InitRef( void ) {
 
 
 //===========================================================================================
+
+/*
+====================
+CL_WindowResizedFallback
+
+Called when the renderer doesn't support resizing the drawable in place.
+Only the target size is remembered here; the video mode is updated right
+before the delayed vid_restart.
+====================
+*/
+static void CL_WindowResizedFallback( int width, int height )
+{
+	// The drawable size is polled every frame and cls.glconfig is not updated
+	// on this path, so ignore repeated notifications for the same target size
+	// instead of postponing the restart forever.
+	if ( s_windowResizeRestartTime
+		&& width == s_windowResizeRestartWidth
+		&& height == s_windowResizeRestartHeight ) {
+		return;
+	}
+
+	s_windowResizeRestartWidth  = width;
+	s_windowResizeRestartHeight = height;
+	s_windowResizeRestartTime   = Sys_Milliseconds() + WINDOW_RESIZE_RESTART_DELAY;
+}
+
+/*
+====================
+CL_UpdateWindowResizeFallback
+
+Execute the delayed vid_restart used by renderers without live resize
+support. Returns qtrue while the fallback is still pending, so the regular
+UI resize path is skipped.
+====================
+*/
+static qboolean CL_UpdateWindowResizeFallback( void )
+{
+	if ( !s_windowResizeRestartTime ) {
+		return qfalse;
+	}
+
+	// Don't restart while loading a map; retry on the next frame
+	if ( !CL_Allowed_Vid_Restart() ) {
+		return qtrue;
+	}
+
+	if ( Sys_Milliseconds() < s_windowResizeRestartTime ) {
+		return qtrue;
+	}
+
+	s_windowResizeRestartTime = 0;
+
+	if ( !s_windowResizeRestoreMode ) {
+		s_windowResizeSavedMode   = Cvar_VariableIntegerValue( "r_mode" );
+		s_windowResizeSavedWidth  = Cvar_VariableIntegerValue( "r_customwidth" );
+		s_windowResizeSavedHeight = Cvar_VariableIntegerValue( "r_customheight" );
+		s_windowResizeRestoreMode = qtrue;
+	}
+
+	Cvar_Set( "r_mode", "-1" );
+	Cvar_SetValue( "r_customwidth", s_windowResizeRestartWidth );
+	Cvar_SetValue( "r_customheight", s_windowResizeRestartHeight );
+
+	Com_DPrintf( "Window resized: renderer doesn't support live resize, restarting video subsystem\n" );
+
+	Cbuf_AddText( "vid_restart\n" );
+
+	return qtrue;
+}
+
+/*
+====================
+CL_WindowResized
+
+Called when the actual drawable size changed (window resize, tiled layout,
+compositor fullscreen, ...). Updates the renderer and the client without
+restarting the video subsystem.
+====================
+*/
+void CL_WindowResized( int width, int height )
+{
+	if ( width <= 0 || height <= 0 ) {
+		return;
+	}
+
+	if ( width == cls.glconfig.vidWidth && height == cls.glconfig.vidHeight ) {
+		return;
+	}
+
+	if ( !re.WindowResized ) {
+		// The renderer can't follow the drawable size in place (GL2):
+		// fall back to the old behavior and restart the video subsystem.
+		// As before, ignore this while in fullscreen mode.
+		if ( cls.glconfig.isFullscreen ) {
+			return;
+		}
+
+		CL_WindowResizedFallback( width, height );
+		return;
+	}
+
+	re.WindowResized( width, height, &cls.glconfig );
+
+	if ( cge ) {
+		cge->CG_GetRendererConfig();
+	}
+
+	if ( cls.uiStarted ) {
+		s_windowResizeUiPending  = qtrue;
+		s_windowResizeLastChange = Sys_Milliseconds();
+		CL_UpdateWindowResizeUI();
+	}
+}
+
+/*
+====================
+CL_UpdateWindowResizeUI
+
+Keep the UI in sync with the window while resizing. A cheap reflow is done
+every frame so the HUD and menus follow the new size immediately, and the
+full (more expensive) resolution change is done once the resize settles.
+====================
+*/
+void CL_UpdateWindowResizeUI( void )
+{
+	int now;
+
+	// Renderers without live resize support (GL2) need a vid_restart once the
+	// window size settles. There is no incremental UI update in that case.
+	if ( CL_UpdateWindowResizeFallback() ) {
+		return;
+	}
+
+	if ( !s_windowResizeUiPending || !cls.uiStarted ) {
+		return;
+	}
+
+	// Don't rebuild the UI while a map is loading; the pending change is
+	// applied as soon as the client is back in a stable state.
+	if ( clc.state != CA_DISCONNECTED && clc.state != CA_ACTIVE ) {
+		return;
+	}
+
+	now = Sys_Milliseconds();
+
+	if ( now - s_windowResizeLastChange >= WINDOW_RESIZE_SETTLE_TIME ) {
+		// The resize settled: do the full pass (scoreboard, shaders, ...)
+		s_windowResizeUiPending = qfalse;
+		s_windowResizeLastReflow = now;
+
+		UI_ResolutionChange();
+
+		// UI_ResolutionChange() may recompute the high-resolution scale, so
+		// refresh the cgame config with the new values.
+		if ( cge ) {
+			cge->CG_GetRendererConfig();
+		}
+		return;
+	}
+
+	if ( now - s_windowResizeLastReflow < WINDOW_RESIZE_REFLOW_INTERVAL ) {
+		return;
+	}
+
+	s_windowResizeLastReflow = now;
+
+	// Cheap pass: keep the HUD and menus aligned with the current size
+	UI_ResolutionReflow();
+
+	// Refresh the cgame config as the high-resolution scale may have changed
+	if ( cge ) {
+		cge->CG_GetRendererConfig();
+	}
+}
 
 qboolean CL_SetVidMode( int mode ) {
 	qboolean ret;

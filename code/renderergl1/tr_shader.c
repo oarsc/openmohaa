@@ -3688,6 +3688,55 @@ qhandle_t RE_RefreshShaderNoMip(const char* name) {
 
 /*
 ====================
+RE_RegisterShaderNoMipNearest
+
+Same as RE_RegisterShaderNoMip, but the textures used by the shader are
+set to nearest-neighbor filtering. Used for pixel-art UI elements with
+1-pixel details (the crosshair) that become blurry when drawn scaled with
+bilinear filtering.
+====================
+*/
+qhandle_t RE_RegisterShaderNoMipNearest( const char *name ) {
+	qhandle_t	h;
+	shader_t	*sh;
+	int			i, b;
+
+	h = RE_RegisterShaderNoMip( name );
+	if ( !h ) {
+		return h;
+	}
+
+	sh = R_GetShaderByHandle( h );
+
+	for ( i = 0; i < sh->numUnfoggedPasses; i++ ) {
+		shaderStage_t *stage = sh->unfoggedStages[i];
+
+		if ( !stage ) {
+			continue;
+		}
+
+		for ( b = 0; b < NUM_TEXTURE_BUNDLES; b++ ) {
+			image_t *image = stage->bundle[b].image[0];
+
+			if ( !image ) {
+				continue;
+			}
+
+			// Texture filters are part of the texture object, so this only
+			// needs to be applied once per (re)load. It is cheap enough to
+			// do on every registration call, which keeps it correct after
+			// the textures are reloaded (e.g. vid_restart).
+			GL_Bind( image );
+			qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+			qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+		}
+	}
+
+	return h;
+}
+
+/*
+====================
 R_GetShaderByHandle
 
 When a handle is passed in by another module, this range checks

@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Older saves are incompatible due to changes from commit 5df5735965298b26b9bd4b90034843c743ff7158.
 
+#### Client
+
+- The HUD and crosshair keep the same size in pixels regardless of the window size. High-resolution UI auto-scaling is now opt-in with `ui_hires_scaling 1`.
+
 #### Server
 
 - Prevent dropping the binoculars (this change was introduced in Spearhead v2.11).

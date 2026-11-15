@@ -418,8 +418,14 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
 
 	ri.Printf( PRINT_ALL, "Initializing OpenGL display\n");
 
-	if ( r_allowResize->integer )
-		flags |= SDL_WINDOW_RESIZABLE;
+	// The window is always resizable so the engine can follow the real
+	// drawable size (tiling compositors, moving between monitors, etc.) and
+	// the user can drag the borders. An existing archived r_allowResize "0"
+	// shouldn't disable that.
+	// The flag is ignored in true fullscreen, but keeping it set means the
+	// window stays resizable when toggling back to windowed mode with
+	// SDL_SetWindowFullscreen().
+	flags |= SDL_WINDOW_RESIZABLE;
 
 #ifdef USE_ICON
 	icon = SDL_CreateRGBSurfaceFrom(
@@ -1086,7 +1092,7 @@ void GLimp_Init( qboolean fixedFunction )
 
 	r_allowSoftwareGL = ri.Cvar_Get( "r_allowSoftwareGL", "0", CVAR_LATCH );
 	r_sdlDriver = ri.Cvar_Get( "r_sdlDriver", "", CVAR_ROM );
-	r_allowResize = ri.Cvar_Get( "r_allowResize", "0", CVAR_ARCHIVE | CVAR_LATCH );
+	r_allowResize = ri.Cvar_Get( "r_allowResize", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_centerWindow = ri.Cvar_Get( "r_centerWindow", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_preferOpenGLES = ri.Cvar_Get( "r_preferOpenGLES", "-1", CVAR_ARCHIVE | CVAR_LATCH );
 
@@ -1221,6 +1227,9 @@ void GLimp_EndFrame( void )
 			// SDL_WM_ToggleFullScreen didn't work, so do it the slow way
 			if( !sdlToggled )
 				ri.Cmd_ExecuteText(EXEC_APPEND, "vid_restart\n");
+			else if( !r_fullscreen->integer )
+				// Coming back to a window: make sure it can still be resized
+				SDL_SetWindowResizable( SDL_window, SDL_TRUE );
 
 			ri.IN_Restart( );
 		}

@@ -445,6 +445,10 @@ functions exported to the main executable
         clientAnim_t *anim;
         stopWatch_t  *stopWatch;
 
+        // Added in OPM
+        //  Crosshair shaders must keep their 1-pixel details when scaled
+        qhandle_t (*R_RegisterShaderNoMipNearest)(const char *name);
+
     } clientGameImport_t;
 
     /*

@@ -21,7 +21,7 @@ This document lists all differences in the engine between versions of the origin
 - Cross-platform support
 - Multiuser support on OS (On Windows, user game data is stored in "%APPDATA%\openmohaa")
 - Many bug fixes and additions from ioquake3
-- Automatic scaling of UI elements on high resolutions like 4K
+- Optional automatic scaling of UI elements on high resolutions like 4K (disabled by default, enable with `ui_hires_scaling 1`)
 
 Overall, better compatibility on modern systems and bugfixes.
 

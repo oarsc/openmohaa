@@ -28,7 +28,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 extern "C" {
 #endif
 
-#define	REF_API_VERSION		14
+#define	REF_API_VERSION		16
 
 typedef struct dtiki_s dtiki_t;
 typedef struct skelAnimFrame_s skelAnimFrame_t;
@@ -163,6 +163,7 @@ typedef struct {
     float           (*Noise)(float x, float y, float z, double t);
     qboolean        (*SetMode)(int mode, const glconfig_t* glConfig);
     void            (*SetFullscreen)(qboolean fullScreen);
+    void            (*WindowResized)(int width, int height, glconfig_t* glConfigOut);
     int             (*GetShaderWidth)(qhandle_t hShader);
     int             (*GetShaderHeight)(qhandle_t hShader);
 	const char*		(*GetShaderName)(qhandle_t hShader);
@@ -180,6 +181,12 @@ typedef struct {
     void (*FreeRawImage)(byte *pic);
 
     void (*Set2DInitialShaderTime)(float startTime);
+
+    // Added in OPM
+    //  Register a shader whose textures use nearest-neighbor filtering.
+    //  Needed for pixel-art UI elements with 1-pixel details (the
+    //  crosshair) that would otherwise be blurred when scaled.
+    qhandle_t (*RegisterShaderNoMipNearest)(const char *name);
 } refexport_t;
 
 //

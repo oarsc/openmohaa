@@ -120,6 +120,7 @@ cvar_t        *ui_gmboxspam;
 cvar_t        *ui_debugload;
 cvar_t        *sound_overlay;
 cvar_t        *ui_compass_scale;
+cvar_t        *ui_hires_scaling;
 
 static intro_stage_t intro_stage;
 static char          server_mapname[64];
@@ -1822,9 +1823,22 @@ void UI_Update(void)
 {
     Menu    *currentMenu;
     UIRect2D frame;
+    // Added in OPM
+    //  Apply ui_hires_scaling changes made from the console or the config
+    static int lastHiResScaling = -1;
 
     re.SetRenderTime(cls.realtime);
     CL_FillUIDef();
+
+    if (ui_hires_scaling && ui_hires_scaling->integer != lastHiResScaling) {
+        lastHiResScaling = ui_hires_scaling->integer;
+        UI_ResolutionChange();
+
+        if (cge) {
+            cge->CG_GetRendererConfig();
+        }
+    }
+
     uWinMan.ServiceEvents();
 
     //
@@ -3873,10 +3887,48 @@ void UI_CreateDialog(
 
 /*
 ====================
-UI_ResolutionChange
+UI_UpdateResolutionScale
+
+Compute the high-resolution UI scale from the current video size.
 ====================
 */
-void UI_ResolutionChange(void)
+static void UI_UpdateResolutionScale(void)
+{
+    // Added in OPM
+    //  Scaling for high resolutions
+    //  Disabled by default so the HUD and the crosshair keep the same size
+    //  in pixels regardless of the window size; enable it with
+    //  ui_hires_scaling 1 for high-DPI displays.
+    if (ui_hires_scaling && ui_hires_scaling->integer && uid.vidWidth > maxWidthRes
+        && uid.vidHeight > maxHeightRes) {
+        const float vidRatio = (float)uid.vidWidth / (float)uid.vidHeight;
+
+        uid.scaleRes[0] = (float)uid.vidWidth / (maxHeightRes * vidRatio);
+        uid.scaleRes[1] = (float)uid.vidHeight / maxHeightRes;
+        //uid.scaleRes[0] = (float)uid.vidWidth / maxWidthRes;
+        //uid.scaleRes[1] = (float)uid.vidHeight / maxHeightRes;
+        uid.bHighResScaling = qtrue;
+    } else {
+        uid.scaleRes[0]     = 1;
+        uid.scaleRes[1]     = 1;
+        uid.bHighResScaling = qfalse;
+    }
+}
+
+/*
+====================
+UI_ApplyResolution
+
+full == qtrue  : apply everything, including the scoreboard and the
+                 shader re-registration needed for high-resolution UI.
+full == qfalse : cheap pass used while the window is being resized, so the
+                 HUD and menus follow the new size every frame. The
+                 scoreboard is recreated lazily by UI_SetScoreBoardItem once
+                 its rect changed, and shaders are refreshed when the resize
+                 settles (full pass).
+====================
+*/
+static void UI_ApplyResolution(qboolean full)
 {
     UIRect2D frame;
 
@@ -3890,21 +3942,7 @@ void UI_ResolutionChange(void)
     CL_FillUIImports();
     CL_FillUIDef();
 
-    // Added in OPM
-    //  Scaling for high resolutions
-    if (uid.vidWidth > maxWidthRes && uid.vidHeight > maxHeightRes) {
-        const float vidRatio = (float)uid.vidWidth / (float)uid.vidHeight;
-
-        uid.scaleRes[0] = (float)uid.vidWidth / (maxHeightRes * vidRatio);
-        uid.scaleRes[1] = (float)uid.vidHeight / maxHeightRes;
-        //uid.scaleRes[0] = (float)uid.vidWidth / maxWidthRes;
-        //uid.scaleRes[1] = (float)uid.vidHeight / maxHeightRes;
-        uid.bHighResScaling = qtrue;
-    } else {
-        uid.scaleRes[0]     = 1;
-        uid.scaleRes[1]     = 1;
-        uid.bHighResScaling = qfalse;
-    }
+    UI_UpdateResolutionScale();
 
     if (!uie.ResolutionChange) {
         return;
@@ -3930,13 +3968,21 @@ void UI_ResolutionChange(void)
         developer_console->setFrame(frame);
     }
 
-    if (scoreboardlist) {
-        delete scoreboardlist;
-        scoreboardlist = NULL;
-        UI_CreateScoreboard();
+    if (full) {
+        if (scoreboardlist) {
+            delete scoreboardlist;
+            scoreboardlist = NULL;
+            UI_CreateScoreboard();
+        }
+
+        uie.ResolutionChange();
+    } else {
+        // Cheap reflow: resize the main window frame so the widgets follow
+        // the new resolution without re-registering every material.
+        frame = UIRect2D(0, 0, uid.vidWidth, uid.vidHeight);
+        uWinMan.setFrame(frame);
     }
 
-    uie.ResolutionChange();
     menuManager.RealignMenus();
 
     if (view3d) {
@@ -3953,6 +3999,30 @@ void UI_ResolutionChange(void)
         frame = getDefaultDMBoxRectangle();
         dmbox->setFrame(frame);
     }
+}
+
+/*
+====================
+UI_ResolutionChange
+====================
+*/
+void UI_ResolutionChange(void)
+{
+    UI_ApplyResolution(qtrue);
+}
+
+/*
+====================
+UI_ResolutionReflow
+
+Cheap resolution update for continuous resizes (dragging the window,
+tiling layouts, compositor fullscreen). Keeps the HUD and menus aligned
+with the new size without the expensive full rebuild.
+====================
+*/
+void UI_ResolutionReflow(void)
+{
+    UI_ApplyResolution(qfalse);
 }
 
 /*
@@ -5254,6 +5324,7 @@ void CL_InitializeUI(void)
     ui_weaponsbar      = Cvar_Get("ui_weaponsbar", "1", 1);
     ui_weaponsbartime  = Cvar_Get("ui_weaponsbartime", "2500", 1);
     ui_itemsbar        = Cvar_Get("ui_itemsbar", "0", 1);
+    ui_hires_scaling   = Cvar_Get("ui_hires_scaling", "0", CVAR_ARCHIVE);
     sound_overlay      = Cvar_Get("soundoverlay", "0", 0);
     ui_debugload       = Cvar_Get("ui_debugload", "0", 0);
     Cvar_Get("ui_signshader", "", 0);

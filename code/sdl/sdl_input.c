@@ -53,8 +53,6 @@ static cvar_t *in_joystickThreshold = NULL;
 static cvar_t *in_joystickNo        = NULL;
 static cvar_t *in_joystickUseAnalog = NULL;
 
-static int vidRestartTime = 0;
-
 static int in_eventTime = 0;
 
 static SDL_Window *SDL_window = NULL;
@@ -1173,36 +1171,21 @@ static void IN_ProcessEvents( void )
 			case SDL_WINDOWEVENT:
 				switch( e.window.event )
 				{
+					// GL1 polls the real drawable size in IN_UpdateWindowSize()
+					// using SDL_GL_GetDrawableSize(), since window event
+					// coordinates can be logical sizes on Wayland. GL2 uses the
+					// RESIZED event below instead.
 					case SDL_WINDOWEVENT_RESIZED:
+						// Renderers that can't follow the drawable size in place
+						// (GL2) keep the old behavior: use the resize event to
+						// schedule a delayed vid_restart. Polling is not used for
+						// them, so they don't retrigger forever when the requested
+						// size and the actual drawable size differ (Wayland).
+						if( !re.WindowResized )
 						{
-							int width, height;
-
-							width = e.window.data1;
-							height = e.window.data2;
-
-							// ignore this event on fullscreen
-							if( cls.glconfig.isFullscreen )
-							{
-								break;
-							}
-
-							// check if size actually changed
-							if( cls.glconfig.vidWidth == width && cls.glconfig.vidHeight == height )
-							{
-								break;
-							}
-
-							Cvar_SetValue( "r_customwidth", width );
-							Cvar_SetValue( "r_customheight", height );
-							Cvar_Set( "r_mode", "-1" );
-
-							// Wait until user stops dragging for 1 second, so
-							// we aren't constantly recreating the GL context while
-							// he tries to drag...
-							vidRestartTime = Sys_Milliseconds( ) + 1000;
+							CL_WindowResized( e.window.data1, e.window.data2 );
 						}
 						break;
-
 					case SDL_WINDOWEVENT_MINIMIZED:    Cvar_SetValue( "com_minimized", 1 ); break;
 					case SDL_WINDOWEVENT_RESTORED:
 					case SDL_WINDOWEVENT_MAXIMIZED:    Cvar_SetValue( "com_minimized", 0 ); break;
@@ -1237,6 +1220,41 @@ static void IN_ProcessEvents( void )
 				break;
 		}
 	}
+}
+
+/*
+===============
+IN_UpdateWindowSize
+
+Poll the real drawable size once per frame and notify the client if it
+changed. Using the drawable instead of the window event data is important
+on Wayland, where event coordinates can be logical sizes that differ from
+the actual pixel size used by OpenGL.
+===============
+*/
+static void IN_UpdateWindowSize( void )
+{
+	int width, height;
+
+	if( !SDL_window )
+		return;
+
+	// Only renderers that implement refexport_t::WindowResized (GL1) can
+	// follow the drawable size in place. GL2 is left untouched and keeps using
+	// the SDL_WINDOWEVENT_RESIZED path (delayed vid_restart).
+	if( !re.WindowResized )
+		return;
+
+	SDL_GL_GetDrawableSize( SDL_window, &width, &height );
+
+	// Ignore minimized/zero-sized windows
+	if( width <= 0 || height <= 0 )
+		return;
+
+	if( width == cls.glconfig.vidWidth && height == cls.glconfig.vidHeight )
+		return;
+
+	CL_WindowResized( width, height );
 }
 
 /*
@@ -1276,15 +1294,14 @@ void IN_Frame( void )
 
 	IN_ProcessEvents( );
 
+	// Follow the real drawable size (window resize, tiling layout, etc.)
+	IN_UpdateWindowSize( );
+
+	// Apply a throttled UI resolution change once the resize settled
+	CL_UpdateWindowResizeUI( );
+
 	// Set event time for next frame to earliest possible time an event could happen
 	in_eventTime = Sys_Milliseconds( );
-
-	// In case we had to delay actual restart of video system
-	if( ( vidRestartTime != 0 ) && ( vidRestartTime < Sys_Milliseconds( ) ) )
-	{
-		vidRestartTime = 0;
-		Cbuf_AddText( "vid_restart\n" );
-	}
 }
 
 /*

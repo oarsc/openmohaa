@@ -546,6 +546,8 @@ void CL_Connect( const char *server, netadrtype_t family );
 void CL_Disconnect_f (void);
 void CL_GetChallengePacket (void);
 void CL_Vid_Restart_f( void );
+void CL_WindowResized( int width, int height );
+void CL_UpdateWindowResizeUI( void );
 void CL_Snd_Restart_f (void);
 const char *CL_ConfigString( int index );
 void CL_StartDemoLoop( void );

@@ -724,6 +724,7 @@ void CL_InitCGameDLL( clientGameImport_t *cgi, clientGameExport_t **cge ) {
 	cgi->R_UnregisterServerModel	= re.UnregisterServerModel;
 	cgi->R_RegisterShader			= re.RegisterShader;
 	cgi->R_RegisterShaderNoMip		= re.RegisterShaderNoMip;
+	cgi->R_RegisterShaderNoMipNearest = re.RegisterShaderNoMipNearest;
 	cgi->R_GetShaderName			= re.GetShaderName;
 
 	cgi->R_AddRefEntityToScene		= re.AddRefEntityToScene;

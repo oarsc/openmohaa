@@ -1346,6 +1346,26 @@ void CG_DrawSpectatorView()
     }
 }
 
+/*
+==============
+CG_RegisterCrosshairShader
+
+The crosshair texture only has 1-pixel-wide strokes, so it must be drawn
+with nearest-neighbor filtering. With the default bilinear filtering, any
+fractional scale or half-pixel offset blends the strokes with the
+transparent texels around them and they end up looking gray.
+==============
+*/
+static qhandle_t CG_RegisterCrosshairShader(const char *name)
+{
+    if (cgi.R_RegisterShaderNoMipNearest) {
+        return cgi.R_RegisterShaderNoMipNearest(name);
+    }
+
+    // Older clients don't provide the nearest-filter variant
+    return cgi.R_RegisterShaderNoMip(name);
+}
+
 void CG_DrawCrosshair()
 {
     centity_t *friendEnt;
@@ -1406,36 +1426,43 @@ void CG_DrawCrosshair()
                 || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
                 // friend
                 if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
-                    shader = cgi.R_RegisterShaderNoMip(cg_crosshair_friend->string);
+                    shader = CG_RegisterCrosshairShader(cg_crosshair_friend->string);
                     if (!shader) {
                         // Fixed in OPM
                         //  Fallback to normal crosshair texture if it doesn't exist
-                        shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
+                        shader = CG_RegisterCrosshairShader(cg_crosshair->string);
                     }
                 }
             } else {
                 // enemy
                 if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
-                    shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
+                    shader = CG_RegisterCrosshairShader(cg_crosshair->string);
                 }
             }
         } else {
             if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
-                shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
+                shader = CG_RegisterCrosshairShader(cg_crosshair->string);
             }
         }
     } else {
         // FFA
         if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
-            shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
+            shader = CG_RegisterCrosshairShader(cg_crosshair->string);
         }
     }
 
     if (shader) {
         width  = cgi.R_GetShaderWidth(shader) * cgs.uiHiResScale[0];
         height = cgi.R_GetShaderHeight(shader) * cgs.uiHiResScale[1];
-        x      = (cgs.glconfig.vidWidth - width) * 0.5f;
-        y      = (cgs.glconfig.vidHeight - height) * 0.5f;
+
+        // Snap the crosshair to whole pixels. On an odd screen size the
+        // centered position falls on a half pixel, which blends the 1-pixel
+        // strokes with the transparent texels around them and makes them
+        // look gray instead of white.
+        width  = (float)(int)(width + 0.5f);
+        height = (float)(int)(height + 0.5f);
+        x      = (float)(int)((cgs.glconfig.vidWidth - width) * 0.5f + 0.5f);
+        y      = (float)(int)((cgs.glconfig.vidHeight - height) * 0.5f + 0.5f);
 
         cgi.R_SetColor(NULL);
         cgi.R_DrawStretchPic(x, y, width, height, 0, 0, 1, 1, shader);
