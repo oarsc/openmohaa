@@ -138,6 +138,8 @@ cvar_t *g_vehicle;
 cvar_t *g_gametype;
 cvar_t *g_gametypestring;
 cvar_t *g_realismmode;
+cvar_t *g_allowLeanMovement;
+cvar_t *g_allowWeaponDrop;
 cvar_t *g_teamdamage;
 cvar_t *g_healthdrop;
 cvar_t *g_healrate;
@@ -488,6 +490,12 @@ void CVAR_Init(void)
     if (g_gametype->integer == GT_SINGLE_PLAYER) {
         gi.cvar_set("g_realismmode", "0");
     }
+
+    // Allow overriding the original single-player restrictions:
+    // leaning while moving (and, in the original game, leaning at all)
+    // and dropping the current weapon.
+    g_allowLeanMovement = gi.Cvar_Get("g_allowLeanMovement", "1", CVAR_SERVERINFO);
+    g_allowWeaponDrop   = gi.Cvar_Get("g_allowWeaponDrop", "1", 0);
 
     g_teamdamage = gi.Cvar_Get("g_teamdamage", "0", 0);
     g_healthdrop = gi.Cvar_Get("g_healthdrop", "1", 0);

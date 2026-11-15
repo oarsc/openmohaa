@@ -506,8 +506,13 @@ void CG_PredictPlayerState(void)
 
     cg_pmove.noFootsteps = (cgs.dmflags & DF_NO_FOOTSTEPS) > 0;
     if (cg_protocol >= PROTOCOL_MOHTA_MIN) {
-        // Leaning while moving is allowed in mohta and mohtt only with a specific dm flag bit set
-        cg_pmove.alwaysAllowLean = (cgs.dmflags & DF_ALLOW_LEAN_MOVEMENT) ? qtrue : qfalse;
+        if (cgs.gametype == GT_SINGLE_PLAYER) {
+            // Allow leaning while moving in single-player when enabled
+            cg_pmove.alwaysAllowLean = cgs.allowLeanMovement ? qtrue : qfalse;
+        } else {
+            // Leaning while moving is allowed in mohta and mohtt only with a specific dm flag bit set
+            cg_pmove.alwaysAllowLean = (cgs.dmflags & DF_ALLOW_LEAN_MOVEMENT) ? qtrue : qfalse;
+        }
 
         cg_pmove.leanMax = 45.f;
         cg_pmove.leanAdd = 6.f;
@@ -515,7 +520,7 @@ void CG_PredictPlayerState(void)
         cg_pmove.leanSpeed = 2.f;
     } else {
         cg_pmove.alwaysAllowLean = qtrue;
-        if (cgs.gametype != GT_SINGLE_PLAYER) {
+        if (cgs.gametype != GT_SINGLE_PLAYER || cgs.allowLeanMovement) {
             cg_pmove.leanMax = 40.f;
         } else {
             // Don't allow lean in single-player, like in the original game

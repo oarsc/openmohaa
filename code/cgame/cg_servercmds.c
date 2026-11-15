@@ -132,12 +132,13 @@ void CG_ParseServerinfo(void)
     const char *mapChecksumStr;
 
     info           = CG_ConfigString(CS_SERVERINFO);
-    cgs.gametype   = atoi(Info_ValueForKey(info, "g_gametype"));
-    cgs.dmflags    = atoi(Info_ValueForKey(info, "dmflags"));
-    cgs.teamflags  = atoi(Info_ValueForKey(info, "teamflags"));
-    cgs.fraglimit  = atoi(Info_ValueForKey(info, "fraglimit"));
-    cgs.timelimit  = atoi(Info_ValueForKey(info, "timelimit"));
-    cgs.maxclients = atoi(Info_ValueForKey(info, "sv_maxclients"));
+    cgs.gametype          = atoi(Info_ValueForKey(info, "g_gametype"));
+    cgs.dmflags           = atoi(Info_ValueForKey(info, "dmflags"));
+    cgs.allowLeanMovement = atoi(Info_ValueForKey(info, "g_allowLeanMovement"));
+    cgs.teamflags         = atoi(Info_ValueForKey(info, "teamflags"));
+    cgs.fraglimit         = atoi(Info_ValueForKey(info, "fraglimit"));
+    cgs.timelimit         = atoi(Info_ValueForKey(info, "timelimit"));
+    cgs.maxclients        = atoi(Info_ValueForKey(info, "sv_maxclients"));
 
     version = Info_ValueForKey(info, "version");
     if (strstr(version, "Spearhead")) {

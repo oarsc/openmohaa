@@ -395,6 +395,7 @@ extern "C" {
         int        serverLagTime;
         gametype_t gametype;
         int        dmflags;
+        int        allowLeanMovement;
         int        teamflags;
         int        fraglimit;
         int        timelimit;

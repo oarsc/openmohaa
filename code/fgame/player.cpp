@@ -3722,7 +3722,8 @@ void Player::SetMoveInfo(pmove_t *pm, usercmd_t *ucmd)
                 pm->alwaysAllowLean = qfalse;
             }
         } else {
-            pm->alwaysAllowLean = qfalse;
+            // Allow leaning while moving in single-player when enabled
+            pm->alwaysAllowLean = g_allowLeanMovement->integer ? qtrue : qfalse;
         }
 
         pm->leanMax          = 45.f;
@@ -3731,7 +3732,7 @@ void Player::SetMoveInfo(pmove_t *pm, usercmd_t *ucmd)
         pm->leanSpeed        = 2.f;
     } else {
         pm->alwaysAllowLean = qtrue;
-        if (g_gametype->integer != GT_SINGLE_PLAYER) {
+        if (g_gametype->integer != GT_SINGLE_PLAYER || g_allowLeanMovement->integer) {
             pm->leanMax = 40.f;
         } else {
             // Don't allow lean in single-player, like in the original game
@@ -5788,8 +5789,9 @@ void Player::DropCurrentWeapon(Event *ev)
     if (g_gametype->integer == GT_SINGLE_PLAYER
         // Added in 2.0
         //  Prevent dropping the weapon if realism mode is disabled
-        //  on single-player
-        && !g_realismmode->integer) {
+        //  on single-player, unless explicitly allowed
+        && !g_realismmode->integer
+        && !g_allowWeaponDrop->integer) {
         return;
     }
 
