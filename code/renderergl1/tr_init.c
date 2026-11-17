@@ -555,7 +555,7 @@ void RB_TakeScreenshot( int x, int y, int width, int height, char *fileName ) {
 	memcount = linelen * height;
 
 	// gamma correct
-	if(glConfig.deviceSupportsGamma)
+	if ( R_SoftwareGammaActive() || glConfig.deviceSupportsGamma )
 		R_GammaCorrect(allbuf + offset, memcount);
 
 	ri.FS_WriteFile(fileName, buffer, memcount + 18);
@@ -577,7 +577,7 @@ void RB_TakeScreenshotJPEG( int x, int y, int width, int height, char *fileName 
 	memcount = (width * 3 + padlen) * height;
 
 	// gamma correct
-	if(glConfig.deviceSupportsGamma)
+	if ( R_SoftwareGammaActive() || glConfig.deviceSupportsGamma )
 		R_GammaCorrect(buffer + offset, memcount);
 
 	RE_SaveJPG(fileName, r_screenshotJpegQuality->integer, width, height, buffer + offset, padlen);
@@ -728,7 +728,7 @@ void R_ResampledScreenShot(const char* filename, int destwidth, int destheight) 
 	}
 
 	// gamma correct
-	if ( glConfig.deviceSupportsGamma ) {
+	if ( R_SoftwareGammaActive() || glConfig.deviceSupportsGamma ) {
 		R_GammaCorrect( buffer + 18, destheight * destwidth * 3 );
 	}
 
@@ -793,7 +793,7 @@ void R_LevelShot( void ) {
 	}
 
 	// gamma correct
-	if ( glConfig.deviceSupportsGamma ) {
+	if ( R_SoftwareGammaActive() || glConfig.deviceSupportsGamma ) {
 		R_GammaCorrect( buffer + 18, 128 * 128 * 3 );
 	}
 
@@ -985,7 +985,7 @@ const void *RB_TakeVideoFrameCmd( const void *data )
 	memcount = padwidth * cmd->height;
 
 	// gamma correct
-	if(glConfig.deviceSupportsGamma)
+	if ( R_SoftwareGammaActive() || glConfig.deviceSupportsGamma )
 		R_GammaCorrect(cBuf, memcount);
 
 	if(cmd->motionJpeg)

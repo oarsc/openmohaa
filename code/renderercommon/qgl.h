@@ -39,6 +39,17 @@ extern void (APIENTRYP qglMultiTexCoord2fARB) (GLenum target, GLfloat s, GLfloat
 extern void (APIENTRYP qglLockArraysEXT) (GLint first, GLsizei count);
 extern void (APIENTRYP qglUnlockArraysEXT) (void);
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void (APIENTRYP qglBindProgramARB) (GLenum target, GLuint program);
+extern void (APIENTRYP qglDeleteProgramsARB) (GLsizei n, const GLuint *programs);
+extern void (APIENTRYP qglGenProgramsARB) (GLsizei n, GLuint *programs);
+extern void (APIENTRYP qglProgramStringARB) (GLenum target, GLenum format, GLsizei len, const GLvoid *string);
+#ifdef __cplusplus
+}
+#endif
+
 
 //===========================================================================
 
@@ -72,8 +83,10 @@ extern void (APIENTRYP qglUnlockArraysEXT) (void);
 	GLE(void, GenTextures, GLsizei n, GLuint *textures ) \
 	GLE(void, GetBooleanv, GLenum pname, GLboolean *params) \
 	GLE(GLenum, GetError, void) \
+	GLE(void, GetFloatv, GLenum pname, GLfloat *params) \
 	GLE(void, GetIntegerv, GLenum pname, GLint *params) \
 	GLE(const GLubyte *, GetString, GLenum name) \
+	GLE(GLboolean, IsEnabled, GLenum cap) \
 	GLE(void, LineStipple, GLint factor, GLushort pattern) \
 	GLE(void, LineWidth, GLfloat width) \
 	GLE(void, PixelZoom, GLfloat xfactor, GLfloat yfactor) \
@@ -97,14 +110,18 @@ extern void (APIENTRYP qglUnlockArraysEXT) (void);
 	GLE(void, ColorPointer, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr) \
 	GLE(void, DisableClientState, GLenum cap) \
 	GLE(void, EnableClientState, GLenum cap) \
+	GLE(void, GetTexEnviv, GLenum target, GLenum pname, GLint *params) \
 	GLE(void, LoadIdentity, void) \
 	GLE(void, LoadMatrixf, const GLfloat *m) \
 	GLE(void, MatrixMode, GLenum mode) \
+	GLE(void, PixelMapfv, GLenum map, GLint mapsize, const GLfloat *values) \
+	GLE(void, PixelTransferi, GLenum pname, GLint param) \
 	GLE(void, PopMatrix, void) \
 	GLE(void, PushMatrix, void) \
 	GLE(void, ShadeModel, GLenum mode) \
 	GLE(void, TexCoordPointer, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr) \
 	GLE(void, TexEnvf, GLenum target, GLenum pname, GLfloat param) \
+	GLE(void, TexEnvi, GLenum target, GLenum pname, GLint param) \
 	GLE(void, VertexPointer, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr) \
 
 // OpenGL 1.0/1.1 and 3.2 core profile but not OpenGL ES 1.x
@@ -124,6 +141,7 @@ extern void (APIENTRYP qglUnlockArraysEXT) (void);
 	GLE(void, End, void) \
 	GLE(void, Frustum, GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble near_val, GLdouble far_val) \
 	GLE(void, Ortho, GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble near_val, GLdouble far_val) \
+	GLE(void, ReadBuffer, GLenum mode) \
 	GLE(void, TexCoord2f, GLfloat s, GLfloat t) \
 	GLE(void, TexCoord2fv, const GLfloat *v) \
 	GLE(void, Vertex2f, GLfloat x, GLfloat y) \
@@ -140,6 +158,13 @@ extern void (APIENTRYP qglUnlockArraysEXT) (void);
 	GLE(void, ClipPlanef, GLenum plane, const GLfloat *equation) \
 	GLE(void, Frustumf, GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat near_val, GLfloat far_val) \
 	GLE(void, Orthof, GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat near_val, GLfloat far_val) \
+
+// GL_ARB_fragment_program (used by the GL1 software gamma pass)
+#define QGL_ARB_FRAGMENT_PROGRAM_PROCS \
+	GLE(void, BindProgramARB, GLenum target, GLuint program) \
+	GLE(void, DeleteProgramsARB, GLsizei n, const GLuint *programs) \
+	GLE(void, GenProgramsARB, GLsizei n, GLuint *programs) \
+	GLE(void, ProgramStringARB, GLenum target, GLenum format, GLsizei len, const GLvoid *string) \
 
 // OpenGL 1.3, was GL_ARB_texture_compression
 #define QGL_1_3_PROCS \
@@ -327,6 +352,7 @@ QGL_DESKTOP_1_1_PROCS;
 QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS;
 QGL_ES_1_1_PROCS;
 QGL_ES_1_1_FIXED_FUNCTION_PROCS;
+QGL_ARB_FRAGMENT_PROGRAM_PROCS;
 QGL_1_3_PROCS;
 QGL_1_5_PROCS;
 QGL_2_0_PROCS;

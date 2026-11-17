@@ -89,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Clients
 
 - Fix a crash caused when firing bullets to specific entities with no surface type (#831).
+- Fix brightness (`r_gamma`) not working on Wayland and XWayland by applying the gamma in software when the compositor doesn't provide a hardware gamma ramp.
 - Fix entities not being able to emit a light when attached to another entity (also occurs on the original Allied Assault but was fixed since Spearhead 2.0) (#824).
 - Fix mapinfo (.min) files never being saved, resulting in the loading bar never showing on some maps (#832).
 - Fix not being able to view sniper zoom when spectating.

@@ -38,6 +38,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 QGL_1_1_PROCS;
 QGL_1_1_FIXED_FUNCTION_PROCS;
+QGL_ARB_FRAGMENT_PROGRAM_PROCS;
 QGL_1_3_PROCS;
 QGL_DESKTOP_1_1_PROCS;
 QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS;
@@ -1817,6 +1818,8 @@ qboolean	R_GetModeInfo( int *width, int *height, float *windowAspect, int mode )
 
 void		R_SetColorMappings( void );
 void		R_GammaCorrect( byte *buffer, int bufSize );
+qboolean	R_SoftwareGammaActive( void );
+const unsigned char *R_GetGammaTable( void );
 
 void	R_ImageList_f( void );
 void	R_SkinList_f( void );

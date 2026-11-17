@@ -1387,6 +1387,371 @@ const void *RB_ClearDepth(const void *data)
 
 /*
 =============
+RB_ApplySoftwareGamma
+
+Applies the gamma lookup table to the final image when the video driver
+doesn't provide a hardware gamma ramp (for example on Wayland). The scene is
+copied into a texture and that texture is drawn back over the frame buffer.
+
+With GL_ARB_fragment_program the gamma is applied by the GPU using a small
+lookup texture, which is essentially free. Without it, the table is applied
+during the pixel transfer, which is much slower as it makes the driver read
+the frame back on the CPU.
+=============
+*/
+
+static const char *s_gammaProgramSource =
+	"!!ARBfp1.0\n"
+	"TEMP color;\n"
+	"TEMP r;\n"
+	"TEMP g;\n"
+	"TEMP b;\n"
+	"TEX color, fragment.texcoord[0], texture[0], 2D;\n"
+	"TEX r, color.xxxx, texture[1], 2D;\n"
+	"TEX g, color.yyyy, texture[1], 2D;\n"
+	"TEX b, color.zzzz, texture[1], 2D;\n"
+	"MOV r.y, g.x;\n"
+	"MOV r.z, b.x;\n"
+	"MOV r.w, 1.0;\n"
+	"MOV result.color, r;\n"
+	"END\n";
+
+static GLuint			s_gammaProgram;
+static qboolean			s_gammaProgramChecked;
+static qboolean			s_gammaProgramAvailable;
+static GLuint			s_gammaLutTexture;
+static unsigned char	s_gammaLutCache[256];
+static qboolean			s_gammaLutValid;
+
+/*
+=============
+RB_InitGammaProgram
+
+Compiles the fragment program used to apply the gamma on the GPU. Returns
+qfalse when GL_ARB_fragment_program is unavailable or the program failed to
+compile.
+=============
+*/
+static qboolean RB_InitGammaProgram( void ) {
+	GLint errorPos;
+
+	if ( s_gammaProgramChecked ) {
+		return s_gammaProgramAvailable;
+	}
+
+	s_gammaProgramChecked = qtrue;
+
+	if ( !qglGenProgramsARB || !qglBindProgramARB || !qglDeleteProgramsARB || !qglProgramStringARB ) {
+		ri.Printf( PRINT_DEVELOPER, "...GL_ARB_fragment_program not available, using the slow gamma path\n" );
+		return qfalse;
+	}
+
+	while ( qglGetError() != GL_NO_ERROR ) {
+	}
+
+	qglGenProgramsARB( 1, &s_gammaProgram );
+	qglBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, s_gammaProgram );
+	qglProgramStringARB( GL_FRAGMENT_PROGRAM_ARB, GL_PROGRAM_FORMAT_ASCII_ARB,
+		(GLsizei)strlen( s_gammaProgramSource ), s_gammaProgramSource );
+
+	errorPos = -1;
+	qglGetIntegerv( GL_PROGRAM_ERROR_POSITION_ARB, &errorPos );
+
+	if ( qglGetError() != GL_NO_ERROR || errorPos != -1 ) {
+		ri.Printf( PRINT_WARNING, "WARNING: could not compile the software gamma program, using the slow gamma path\n" );
+		qglBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, 0 );
+		qglDeleteProgramsARB( 1, &s_gammaProgram );
+		s_gammaProgram = 0;
+		return qfalse;
+	}
+
+	s_gammaProgramAvailable = qtrue;
+	return qtrue;
+}
+
+/*
+=============
+RB_UpdateGammaLutTexture
+
+Uploads the gamma lookup table into a 256x1 luminance texture. The texture is
+bound on the current texture unit.
+=============
+*/
+static void RB_UpdateGammaLutTexture( const unsigned char *gammaTable ) {
+	if ( !s_gammaLutTexture ) {
+		qglGenTextures( 1, &s_gammaLutTexture );
+		qglBindTexture( GL_TEXTURE_2D, s_gammaLutTexture );
+		qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+		qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+		qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
+		qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
+		qglTexImage2D( GL_TEXTURE_2D, 0, GL_LUMINANCE, 256, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, gammaTable );
+		memcpy( s_gammaLutCache, gammaTable, 256 );
+		s_gammaLutValid = qtrue;
+	} else if ( !s_gammaLutValid || memcmp( s_gammaLutCache, gammaTable, 256 ) ) {
+		qglBindTexture( GL_TEXTURE_2D, s_gammaLutTexture );
+		qglTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_LUMINANCE, GL_UNSIGNED_BYTE, gammaTable );
+		memcpy( s_gammaLutCache, gammaTable, 256 );
+		s_gammaLutValid = qtrue;
+	}
+}
+
+static void RB_ApplySoftwareGamma( void ) {
+	static GLuint	gammaTexture = 0;
+	static int		gammaTextureWidth = 0;
+	static int		gammaTextureHeight = 0;
+
+	const unsigned char	*gammaTable;
+	unsigned int		i;
+	int					width, height, texWidth, texHeight;
+	int					prevTmu;
+	float				pixelMap[256];
+	GLint				prevViewport[4];
+	GLint				prevMatrixMode;
+	GLint				prevTexEnv;
+	GLint				prevTexBinding;
+	GLint				prevTexBinding1 = 0;
+	GLint				prevReadBuffer;
+	GLint				drawBuffer;
+	GLint				maxTextureSize;
+	GLfloat				prevColor[4];
+	GLboolean			prevDepthTest, prevBlend, prevAlphaTest, prevCullFace;
+	GLboolean			prevScissorTest, prevStencilTest, prevFog, prevLighting;
+	GLboolean			prevTex0, prevTex1 = GL_FALSE;
+	GLboolean			prevColorArray, prevTexCoordArray, prevNormalArray;
+	qboolean			useGpuLut;
+
+	if ( !R_SoftwareGammaActive() ) {
+		return;
+	}
+
+	width = glConfig.vidWidth;
+	height = glConfig.vidHeight;
+
+	if ( width <= 0 || height <= 0 ) {
+		return;
+	}
+
+	gammaTable = R_GetGammaTable();
+
+	// The frame is copied into a power-of-two texture, which requires the
+	// resolution to fit in the maximum supported texture size.
+	qglGetIntegerv( GL_MAX_TEXTURE_SIZE, &maxTextureSize );
+	if ( width > maxTextureSize || height > maxTextureSize ) {
+		return;
+	}
+
+	prevTmu = glState.currenttmu;
+	if ( qglActiveTextureARB ) {
+		GL_SelectTexture( 0 );
+	}
+
+	qglGetIntegerv( GL_TEXTURE_BINDING_2D, &prevTexBinding );
+
+	useGpuLut = qglActiveTextureARB && RB_InitGammaProgram();
+	if ( useGpuLut ) {
+		RB_UpdateGammaLutTexture( gammaTable );
+	}
+
+	for ( texWidth = 1; texWidth < width; texWidth <<= 1 ) {
+	}
+	for ( texHeight = 1; texHeight < height; texHeight <<= 1 ) {
+	}
+
+	if ( !gammaTexture || gammaTextureWidth != texWidth || gammaTextureHeight != texHeight ) {
+		if ( gammaTexture ) {
+			qglDeleteTextures( 1, &gammaTexture );
+		}
+
+		qglGenTextures( 1, &gammaTexture );
+		qglBindTexture( GL_TEXTURE_2D, gammaTexture );
+		qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+		qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+		qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
+		qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
+		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, texWidth, texHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL );
+
+		gammaTextureWidth = texWidth;
+		gammaTextureHeight = texHeight;
+	} else {
+		qglBindTexture( GL_TEXTURE_2D, gammaTexture );
+	}
+
+	qglGetIntegerv( GL_VIEWPORT, prevViewport );
+	qglGetIntegerv( GL_MATRIX_MODE, &prevMatrixMode );
+	qglGetIntegerv( GL_READ_BUFFER, &prevReadBuffer );
+	qglGetIntegerv( GL_DRAW_BUFFER, &drawBuffer );
+	qglGetFloatv( GL_CURRENT_COLOR, prevColor );
+	qglGetTexEnviv( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, &prevTexEnv );
+
+	prevDepthTest = qglIsEnabled( GL_DEPTH_TEST );
+	prevBlend = qglIsEnabled( GL_BLEND );
+	prevAlphaTest = qglIsEnabled( GL_ALPHA_TEST );
+	prevCullFace = qglIsEnabled( GL_CULL_FACE );
+	prevScissorTest = qglIsEnabled( GL_SCISSOR_TEST );
+	prevStencilTest = qglIsEnabled( GL_STENCIL_TEST );
+	prevFog = qglIsEnabled( GL_FOG );
+	prevLighting = qglIsEnabled( GL_LIGHTING );
+	prevTex0 = qglIsEnabled( GL_TEXTURE_2D );
+	prevColorArray = qglIsEnabled( GL_COLOR_ARRAY );
+	prevTexCoordArray = qglIsEnabled( GL_TEXTURE_COORD_ARRAY );
+	prevNormalArray = qglIsEnabled( GL_NORMAL_ARRAY );
+
+	// Don't let the second texture unit interfere with the final quad.
+	if ( qglActiveTextureARB ) {
+		GL_SelectTexture( 1 );
+		prevTex1 = qglIsEnabled( GL_TEXTURE_2D );
+		qglGetIntegerv( GL_TEXTURE_BINDING_2D, &prevTexBinding1 );
+		qglDisable( GL_TEXTURE_2D );
+		GL_SelectTexture( 0 );
+	}
+
+	if ( !prevTex0 ) {
+		qglEnable( GL_TEXTURE_2D );
+	}
+
+	if ( prevColorArray ) {
+		qglDisableClientState( GL_COLOR_ARRAY );
+	}
+	if ( prevTexCoordArray ) {
+		qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	}
+	if ( prevNormalArray ) {
+		qglDisableClientState( GL_NORMAL_ARRAY );
+	}
+
+	qglDisable( GL_DEPTH_TEST );
+	qglDisable( GL_BLEND );
+	qglDisable( GL_ALPHA_TEST );
+	qglDisable( GL_CULL_FACE );
+	qglDisable( GL_SCISSOR_TEST );
+	qglDisable( GL_STENCIL_TEST );
+	qglDisable( GL_FOG );
+	qglDisable( GL_LIGHTING );
+
+	qglViewport( 0, 0, width, height );
+
+	qglMatrixMode( GL_PROJECTION );
+	qglPushMatrix();
+	qglLoadIdentity();
+	qglOrtho( 0, width, 0, height, -1, 1 );
+
+	qglMatrixMode( GL_MODELVIEW );
+	qglPushMatrix();
+	qglLoadIdentity();
+
+	qglMatrixMode( GL_TEXTURE );
+	qglPushMatrix();
+	qglLoadIdentity();
+
+	// First copy the frame buffer into the texture. With fragment programs the
+	// copy is left untouched and the table is sampled on the GPU, otherwise it
+	// is applied during the pixel transfer.
+	if ( !useGpuLut ) {
+		for ( i = 0; i < 256; i++ ) {
+			pixelMap[i] = gammaTable[i] / 255.0f;
+		}
+
+		qglPixelMapfv( GL_PIXEL_MAP_R_TO_R, 256, pixelMap );
+		qglPixelMapfv( GL_PIXEL_MAP_G_TO_G, 256, pixelMap );
+		qglPixelMapfv( GL_PIXEL_MAP_B_TO_B, 256, pixelMap );
+		qglPixelTransferi( GL_MAP_COLOR, GL_TRUE );
+	}
+
+	// Read from the same buffer the frame was rendered into (the buffers
+	// differ when using r_drawBuffer GL_FRONT or anaglyph/stereo rendering).
+	if ( drawBuffer != prevReadBuffer ) {
+		qglReadBuffer( drawBuffer );
+	}
+
+	qglCopyTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height );
+
+	if ( drawBuffer != prevReadBuffer ) {
+		qglReadBuffer( prevReadBuffer );
+	}
+
+	if ( !useGpuLut ) {
+		qglPixelTransferi( GL_MAP_COLOR, GL_FALSE );
+	}
+
+	// Then draw the gamma-corrected texture back over the window.
+	if ( useGpuLut ) {
+		GL_SelectTexture( 1 );
+		qglBindTexture( GL_TEXTURE_2D, s_gammaLutTexture );
+		qglEnable( GL_TEXTURE_2D );
+		GL_SelectTexture( 0 );
+
+		// The GL1 renderer never uses fragment programs itself, so there is no
+		// previous program to restore afterwards.
+		qglEnable( GL_FRAGMENT_PROGRAM_ARB );
+		qglBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, s_gammaProgram );
+	}
+
+	qglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
+	qglColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
+
+	qglBegin( GL_QUADS );
+	qglTexCoord2f( 0.0f, 0.0f );
+	qglVertex2f( 0.0f, 0.0f );
+	qglTexCoord2f( width / (float)texWidth, 0.0f );
+	qglVertex2f( width, 0.0f );
+	qglTexCoord2f( width / (float)texWidth, height / (float)texHeight );
+	qglVertex2f( width, height );
+	qglTexCoord2f( 0.0f, height / (float)texHeight );
+	qglVertex2f( 0.0f, height );
+	qglEnd();
+
+	if ( useGpuLut ) {
+		qglDisable( GL_FRAGMENT_PROGRAM_ARB );
+		qglBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, 0 );
+	}
+
+	qglMatrixMode( GL_TEXTURE );
+	qglPopMatrix();
+	qglMatrixMode( GL_MODELVIEW );
+	qglPopMatrix();
+	qglMatrixMode( GL_PROJECTION );
+	qglPopMatrix();
+	qglMatrixMode( prevMatrixMode );
+
+	qglViewport( prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3] );
+
+	qglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, prevTexEnv );
+	qglColor4f( prevColor[0], prevColor[1], prevColor[2], prevColor[3] );
+
+	qglBindTexture( GL_TEXTURE_2D, prevTexBinding );
+
+	if ( !prevTex0 ) {
+		qglDisable( GL_TEXTURE_2D );
+	}
+
+	if ( qglActiveTextureARB ) {
+		GL_SelectTexture( 1 );
+		qglBindTexture( GL_TEXTURE_2D, prevTexBinding1 );
+		if ( prevTex1 ) {
+			qglEnable( GL_TEXTURE_2D );
+		} else {
+			qglDisable( GL_TEXTURE_2D );
+		}
+		GL_SelectTexture( prevTmu );
+	}
+
+	if ( prevDepthTest ) { qglEnable( GL_DEPTH_TEST ); }
+	if ( prevBlend ) { qglEnable( GL_BLEND ); }
+	if ( prevAlphaTest ) { qglEnable( GL_ALPHA_TEST ); }
+	if ( prevCullFace ) { qglEnable( GL_CULL_FACE ); }
+	if ( prevScissorTest ) { qglEnable( GL_SCISSOR_TEST ); }
+	if ( prevStencilTest ) { qglEnable( GL_STENCIL_TEST ); }
+	if ( prevFog ) { qglEnable( GL_FOG ); }
+	if ( prevLighting ) { qglEnable( GL_LIGHTING ); }
+
+	if ( prevColorArray ) { qglEnableClientState( GL_COLOR_ARRAY ); }
+	if ( prevTexCoordArray ) { qglEnableClientState( GL_TEXTURE_COORD_ARRAY ); }
+	if ( prevNormalArray ) { qglEnableClientState( GL_NORMAL_ARRAY ); }
+}
+
+/*
+=============
 RB_SwapBuffers
 
 =============
@@ -1430,6 +1795,8 @@ const void	*RB_SwapBuffers( const void *data ) {
 	}
 
 	GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );
+
+	RB_ApplySoftwareGamma();
 
 	GLimp_EndFrame();
 

@@ -71,6 +71,7 @@ QGL_DESKTOP_1_1_PROCS;
 QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS;
 QGL_ES_1_1_PROCS;
 QGL_ES_1_1_FIXED_FUNCTION_PROCS;
+QGL_ARB_FRAGMENT_PROGRAM_PROCS;
 QGL_1_3_PROCS;
 QGL_1_5_PROCS;
 QGL_2_0_PROCS;
@@ -373,6 +374,7 @@ static void GLimp_ClearProcAddresses( void ) {
 	QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS;
 	QGL_ES_1_1_PROCS;
 	QGL_ES_1_1_FIXED_FUNCTION_PROCS;
+	QGL_ARB_FRAGMENT_PROGRAM_PROCS;
 	QGL_1_3_PROCS;
 	QGL_1_5_PROCS;
 	QGL_2_0_PROCS;
@@ -1015,6 +1017,37 @@ static void GLimp_InitExtensions( qboolean fixedFunction )
 			ri.Printf( PRINT_ALL, "...GL_ARB_multitexture not found\n" );
 		}
 
+		// GL_ARB_fragment_program, used to apply the gamma on the GPU when
+		// the compositor doesn't provide a hardware gamma ramp.
+		qglBindProgramARB = NULL;
+		qglDeleteProgramsARB = NULL;
+		qglGenProgramsARB = NULL;
+		qglProgramStringARB = NULL;
+		if ( SDL_GL_ExtensionSupported( "GL_ARB_fragment_program" ) )
+		{
+			qglBindProgramARB = SDL_GL_GetProcAddress( "glBindProgramARB" );
+			qglDeleteProgramsARB = SDL_GL_GetProcAddress( "glDeleteProgramsARB" );
+			qglGenProgramsARB = SDL_GL_GetProcAddress( "glGenProgramsARB" );
+			qglProgramStringARB = SDL_GL_GetProcAddress( "glProgramStringARB" );
+
+			if ( qglBindProgramARB && qglDeleteProgramsARB && qglGenProgramsARB && qglProgramStringARB )
+			{
+				ri.Printf( PRINT_ALL, "...using GL_ARB_fragment_program\n" );
+			}
+			else
+			{
+				qglBindProgramARB = NULL;
+				qglDeleteProgramsARB = NULL;
+				qglGenProgramsARB = NULL;
+				qglProgramStringARB = NULL;
+				ri.Printf( PRINT_ALL, "...GL_ARB_fragment_program not usable\n" );
+			}
+		}
+		else
+		{
+			ri.Printf( PRINT_ALL, "...GL_ARB_fragment_program not found\n" );
+		}
+
 		// GL_EXT_compiled_vertex_array
 		if ( SDL_GL_ExtensionSupported( "GL_EXT_compiled_vertex_array" ) )
 		{
@@ -1134,9 +1167,21 @@ success:
 	glConfig.driverType = GLDRV_ICD;
 	glConfig.hardwareType = GLHW_GENERIC;
 
-	// Only using SDL_SetWindowBrightness to determine if hardware gamma is supported
-	glConfig.deviceSupportsGamma = !r_ignorehwgamma->integer &&
-		SDL_SetWindowBrightness( SDL_window, 1.0f ) >= 0;
+	// Wayland compositors don't expose the gamma ramp to clients, so the
+	// renderer has to apply it. This also covers XWayland, where
+	// SDL_SetWindowBrightness() may report success while the compositor
+	// silently ignores the ramp.
+	{
+		const char *sessionType = getenv( "XDG_SESSION_TYPE" );
+		const char *waylandDisplay = getenv( "WAYLAND_DISPLAY" );
+		qboolean waylandSession = ( sessionType && !Q_stricmp( sessionType, "wayland" ) ) ||
+			( waylandDisplay && *waylandDisplay );
+
+		// Only using SDL_SetWindowBrightness to determine if hardware gamma is supported
+		glConfig.deviceSupportsGamma = !r_ignorehwgamma->integer &&
+			!waylandSession &&
+			SDL_SetWindowBrightness( SDL_window, 1.0f ) >= 0;
+	}
 
 	// get our config strings
 	Q_strncpyz( glConfig.vendor_string, (char *) qglGetString (GL_VENDOR), sizeof( glConfig.vendor_string ) );

@@ -62,6 +62,26 @@ void R_GammaCorrect( byte *buffer, int bufSize ) {
 	}
 }
 
+/*
+** R_SoftwareGammaActive
+
+Returns qtrue when the gamma has to be applied by the renderer instead of the
+video driver. This is the case on platforms where the hardware gamma ramp is
+unavailable (for example Wayland).
+*/
+qboolean R_SoftwareGammaActive( void ) {
+	return r_gamma->value != 1.0f && ( !glConfig.deviceSupportsGamma || r_ignorehwgamma->integer > 0 );
+}
+
+/*
+** R_GetGammaTable
+
+Returns the current software gamma lookup table.
+*/
+const unsigned char *R_GetGammaTable( void ) {
+	return s_gammatable;
+}
+
 typedef struct {
 	char *name;
 	int	minimize, maximize;
@@ -299,55 +319,25 @@ lighting range
 */
 void R_LightScaleTexture (unsigned *in, int inwidth, int inheight, qboolean only_gamma )
 {
-	if (!tr.needsLightScale) {
+	int		i, c;
+	byte	*p;
+
+	// The gamma is now applied to the final image by RB_ApplySoftwareGamma()
+	// when the hardware gamma ramp isn't available, so only the intensity
+	// table has to be applied here.
+	if ( only_gamma || !tr.needsLightScale ) {
 		return;
 	}
 
-	if ( only_gamma )
+	p = (byte *)in;
+
+	c = inwidth*inheight;
+
+	for (i=0 ; i<c ; i++, p+=4)
 	{
-		if ( !glConfig.deviceSupportsGamma )
-		{
-			int		i, c;
-			byte	*p;
-
-			p = (byte *)in;
-
-			c = inwidth*inheight;
-			for (i=0 ; i<c ; i++, p+=4)
-			{
-				p[0] = s_gammatable[p[0]];
-				p[1] = s_gammatable[p[1]];
-				p[2] = s_gammatable[p[2]];
-			}
-		}
-	}
-	else
-	{
-		int		i, c;
-		byte	*p;
-
-		p = (byte *)in;
-
-		c = inwidth*inheight;
-
-		if ( glConfig.deviceSupportsGamma )
-		{
-			for (i=0 ; i<c ; i++, p+=4)
-			{
-				p[0] = s_intensitytable[p[0]];
-				p[1] = s_intensitytable[p[1]];
-				p[2] = s_intensitytable[p[2]];
-			}
-		}
-		else
-		{
-			for (i=0 ; i<c ; i++, p+=4)
-			{
-				p[0] = s_gammatable[s_intensitytable[p[0]]];
-				p[1] = s_gammatable[s_intensitytable[p[1]]];
-				p[2] = s_gammatable[s_intensitytable[p[2]]];
-			}
-		}
+		p[0] = s_intensitytable[p[0]];
+		p[1] = s_intensitytable[p[1]];
+		p[2] = s_intensitytable[p[2]];
 	}
 }
 
@@ -2803,15 +2793,11 @@ void R_SetColorMappings( void ) {
 	}
 
 	g = r_gamma->value;
-	if (!glConfig.deviceSupportsGamma && g != 1.0) {
-		tr.needsLightScale = qtrue;
-	}
-	else if (r_intensity->value != 1.0) {
-		tr.needsLightScale = qtrue;
-	}
-	else {
-		tr.needsLightScale = qfalse;
-	}
+
+	// The gamma itself is either handled by the video driver or by the final
+	// software gamma pass, so only the intensity needs to be baked into the
+	// textures here.
+	tr.needsLightScale = ( r_intensity->value != 1.0 );
 
 	shift = tr.overbrightBits;
 
