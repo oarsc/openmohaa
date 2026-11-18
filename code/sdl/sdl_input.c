@@ -358,6 +358,7 @@ static void IN_ActivateMouse( qboolean isFullscreen )
 	{
 		SDL_SetRelativeMouseMode( SDL_TRUE );
 		SDL_SetWindowGrab( SDL_window, SDL_TRUE );
+		SDL_ShowCursor( SDL_FALSE );
 
 		IN_GobbleMotionEvents( );
 	}
@@ -370,9 +371,11 @@ static void IN_ActivateMouse( qboolean isFullscreen )
 			if( in_nograb->integer ) {
 				SDL_SetRelativeMouseMode( SDL_FALSE );
 				SDL_SetWindowGrab( SDL_window, SDL_FALSE );
+				SDL_ShowCursor( SDL_TRUE );
 			} else {
 				SDL_SetRelativeMouseMode( SDL_TRUE );
 				SDL_SetWindowGrab( SDL_window, SDL_TRUE );
+				SDL_ShowCursor( SDL_FALSE );
 			}
 
 			in_nograb->modified = qfalse;
@@ -387,18 +390,16 @@ static void IN_ActivateMouse( qboolean isFullscreen )
 IN_DeactivateMouse
 ===============
 */
-static void IN_DeactivateMouse( qboolean isFullscreen )
+static void IN_DeactivateMouse( void )
 {
 	if( !SDL_WasInit( SDL_INIT_VIDEO ) )
 		return;
 
-	// Always show the cursor when the mouse is disabled,
-	// but not when fullscreen
-	if( !isFullscreen )
-		SDL_ShowCursor( SDL_TRUE );
-
 	if( !mouseAvailable )
+	{
+		SDL_ShowCursor( SDL_TRUE );
 		return;
+	}
 
 	if( mouseActive )
 	{
@@ -413,6 +414,10 @@ static void IN_DeactivateMouse( qboolean isFullscreen )
 
 		mouseActive = qfalse;
 	}
+
+	// Show the cursor whenever the mouse is released, so the player can use
+	// the UI cursor and, in windowed mode, move it outside the window.
+	SDL_ShowCursor( SDL_TRUE );
 }
 
 // We translate axes movement into keypresses
@@ -1265,6 +1270,7 @@ IN_Frame
 void IN_Frame( void )
 {
 	qboolean loading;
+	qboolean guiMouse;
 
 	IN_JoyMove( );
 
@@ -1274,20 +1280,25 @@ void IN_Frame( void )
 	// update isFullscreen since it might of changed since the last vid_restart
 	cls.glconfig.isFullscreen = Cvar_VariableIntegerValue( "r_fullscreen" ) != 0;
 
-	if( !cls.glconfig.isFullscreen && ( Key_GetCatcher( ) & (KEYCATCH_CONSOLE|KEYCATCH_UI) ) )
+	// The game cursor is visible while the UI mouse is enabled. Release the
+	// mouse in that case so it can be moved freely and even leave the window;
+	// while playing (aiming) it stays grabbed and confined to the window.
+	guiMouse = in_guimouse;
+
+	if( guiMouse )
 	{
-		// Console is down in windowed mode
-		IN_DeactivateMouse( cls.glconfig.isFullscreen );
+		// UI cursor is visible (menu, console...)
+		IN_DeactivateMouse( );
 	}
-	else if( !cls.glconfig.isFullscreen && loading )
+	else if( loading )
 	{
-		// Loading in windowed mode
-		IN_DeactivateMouse( cls.glconfig.isFullscreen );
+		// Loading
+		IN_DeactivateMouse( );
 	}
 	else if( !( SDL_GetWindowFlags( SDL_window ) & SDL_WINDOW_INPUT_FOCUS ) )
 	{
 		// Window not got focus
-		IN_DeactivateMouse( cls.glconfig.isFullscreen );
+		IN_DeactivateMouse( );
 	}
 	else
 		IN_ActivateMouse( cls.glconfig.isFullscreen );
@@ -1339,7 +1350,7 @@ void IN_Init( void *windowData )
 	SDL_StartTextInput( );
 
 	mouseAvailable = ( in_mouse->value != 0 );
-	IN_DeactivateMouse( Cvar_VariableIntegerValue( "r_fullscreen" ) != 0 );
+	IN_DeactivateMouse( );
 
 	appState = SDL_GetWindowFlags( SDL_window );
 	Cvar_SetValue( "com_unfocused",	!( appState & SDL_WINDOW_INPUT_FOCUS ) );
@@ -1358,7 +1369,7 @@ void IN_Shutdown( void )
 {
 	SDL_StopTextInput( );
 
-	IN_DeactivateMouse( Cvar_VariableIntegerValue( "r_fullscreen" ) != 0 );
+	IN_DeactivateMouse( );
 	mouseAvailable = qfalse;
 
 	IN_ShutdownJoystick( );

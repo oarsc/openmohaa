@@ -477,14 +477,10 @@ CL_UpdateMouse
 
 Added in OPM
 Update mouse position with absolute position (relative to the window)
-when the UI catcher is active.
+whenever the mouse is released (the UI cursor is visible).
 =================
 */
 void CL_UpdateMouse() {
-    if (!(Key_GetCatcher() & KEYCATCH_UI)) {
-        return;
-    }
-
     if (IN_IsCursorActive()) {
         // If it's grabbed, don't use absolute position
         return;
