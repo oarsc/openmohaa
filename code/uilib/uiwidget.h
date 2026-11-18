@@ -164,6 +164,9 @@ protected:
     fontvertjustify_t     m_iFontAlignmentVertical;
     qboolean              m_bVirtual;
     str                   m_enabledCvar;
+    // Added in OPM
+    //  Use the player-selected HUD scale instead of the UI scale
+    qboolean              m_bHudScaling;
     //
     // Added in 2.0
     //
@@ -189,7 +192,10 @@ protected:
     void         DrawTitle(float x, float y);
     void         Motion(void);
     virtual void AlignPosition(void);
-    void         Hide(Event *ev);
+    // Added in OPM
+    qboolean isHudScaling(void) const;
+    void     GetTargetScale(vec2_t out);
+    void     Hide(Event *ev);
     void         Activate(Event *ev);
     void         BringToFront(void);
     static void  SplitWidgets(
@@ -361,6 +367,7 @@ public:
     bool          isVirtual() const;
     const vec2_t& getVirtualScale() const;
     const vec2_t& getHighResScale() const;
+    void          SetHudScaling(qboolean enable);
 };
 
 class UIWidgetContainer : public UIWidget

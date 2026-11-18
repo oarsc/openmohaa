@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Client
 
 - Add support for one-shot animated shaders in the UI (#838) (not supported in the original game).
+- Add `ui_hud_scale` to resize the in-game HUD from the console. `1` keeps the original size (default), `2` doubles the crosshair, health bar, compass, ammo, etc.
 
 #### Platform
 

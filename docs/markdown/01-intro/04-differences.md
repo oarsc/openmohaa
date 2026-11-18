@@ -22,6 +22,7 @@ This document lists all differences in the engine between versions of the origin
 - Multiuser support on OS (On Windows, user game data is stored in "%APPDATA%\openmohaa")
 - Many bug fixes and additions from ioquake3
 - Optional automatic scaling of UI elements on high resolutions like 4K (disabled by default, enable with `ui_hires_scaling 1`)
+- Adjustable HUD scale from the console with `ui_hud_scale` (`1` = original size, `2` = twice as big; the crosshair, health bar, compass, ammo, etc. all follow it)
 
 Overall, better compatibility on modern systems and bugfixes.
 

@@ -194,6 +194,9 @@ typedef struct uiexport_s {
         qboolean     uiHasMouse;
         qboolean     bHighResScaling;
         vec2_t       scaleRes;
+        // Added in OPM
+        //  User-selected scale for the in-game HUD (ui_hud_scale)
+        vec2_t       hudScale;
     } uidef_t;
 
     extern uidef_t    uid;

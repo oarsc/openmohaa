@@ -121,6 +121,7 @@ cvar_t        *ui_debugload;
 cvar_t        *sound_overlay;
 cvar_t        *ui_compass_scale;
 cvar_t        *ui_hires_scaling;
+cvar_t        *ui_hud_scale;
 
 static intro_stage_t intro_stage;
 static char          server_mapname[64];
@@ -155,6 +156,7 @@ void UI_MainMenuWidgetsUpdate(void);
 
 static UIRect2D getDefaultGMBoxRectangle(void);
 static UIRect2D getDefaultDMBoxRectangle(void);
+static void     UI_UpdateHudScale(void);
 
 class ConsoleHider : public Listener
 {
@@ -1245,11 +1247,32 @@ UI_GetObjectivesTop
 */
 void UI_GetHighResolutionScale(vec2_t scale)
 {
-    if (uid.bHighResScaling) {
-        scale[0] = uid.scaleRes[0];
-        scale[1] = uid.scaleRes[1];
-    } else {
-        scale[0] = scale[1] = 1.0;
+    // Added in OPM
+    //  The cgame uses this scale for the crosshair and the HUD elements it
+    //  draws itself. It now follows ui_hud_scale so the whole HUD can be
+    //  resized with a single command.
+    scale[0] = uid.hudScale[0] > 0.0f ? uid.hudScale[0] : 1.0f;
+    scale[1] = uid.hudScale[1] > 0.0f ? uid.hudScale[1] : 1.0f;
+}
+
+/*
+====================
+UI_MarkHudMenu
+
+Added in OPM
+  Flag a menu as part of the in-game HUD so it follows ui_hud_scale.
+====================
+*/
+static void UI_MarkHudMenu(Menu *menu)
+{
+    if (!menu) {
+        return;
+    }
+
+    UIWidget *container = menu->GetContainerWidget();
+
+    if (container) {
+        container->SetHudScaling(qtrue);
     }
 }
 
@@ -1825,7 +1848,9 @@ void UI_Update(void)
     UIRect2D frame;
     // Added in OPM
     //  Apply ui_hires_scaling changes made from the console or the config
-    static int lastHiResScaling = -1;
+    static int   lastHiResScaling = -1;
+    //  Apply ui_hud_scale changes made from the console or the config
+    static float lastHudScale = -1.0f;
 
     re.SetRenderTime(cls.realtime);
     CL_FillUIDef();
@@ -1833,6 +1858,19 @@ void UI_Update(void)
     if (ui_hires_scaling && ui_hires_scaling->integer != lastHiResScaling) {
         lastHiResScaling = ui_hires_scaling->integer;
         UI_ResolutionChange();
+
+        if (cge) {
+            cge->CG_GetRendererConfig();
+        }
+    }
+
+    if (ui_hud_scale && ui_hud_scale->value != lastHudScale) {
+        lastHudScale = ui_hud_scale->value;
+        UI_UpdateHudScale();
+
+        // HUD widgets are marked with SetHudScaling(), so a plain realign
+        // resizes them without rebuilding the rest of the UI.
+        menuManager.RealignMenus();
 
         if (cge) {
             cge->CG_GetRendererConfig();
@@ -2351,6 +2389,10 @@ void UI_Update(void)
                         hud_ammo->ForceHide();
                     }
                     hud_ammo = ammoMenu;
+                    // Added in OPM
+                    //  The ammo menu changes with the weapon, keep it on the
+                    //  HUD scale as well
+                    UI_MarkHudMenu(hud_ammo);
                 }
             } else {
                 ammoMenu = menuManager.FindMenu("hud_ammo_");
@@ -2360,6 +2402,7 @@ void UI_Update(void)
                             hud_ammo->ForceHide();
                         }
                         hud_ammo = ammoMenu;
+                        UI_MarkHudMenu(hud_ammo);
                     }
                 }
             }
@@ -3917,6 +3960,34 @@ static void UI_UpdateResolutionScale(void)
 
 /*
 ====================
+UI_UpdateHudScale
+
+Added in OPM
+  Read ui_hud_scale and store the clamped value used by the HUD widgets.
+
+  ui_hud_scale 1 : HUD keeps its original size (default)
+  ui_hud_scale 2 : crosshair, health bar, compass, ammo... twice as big
+====================
+*/
+static void UI_UpdateHudScale(void)
+{
+    float scale = ui_hud_scale ? ui_hud_scale->value : 1.0f;
+
+    if (scale <= 0.0f) {
+        // Invalid or missing value, fall back to the original HUD size
+        scale = 1.0f;
+    } else if (scale < 0.25f) {
+        scale = 0.25f;
+    } else if (scale > 4.0f) {
+        scale = 4.0f;
+    }
+
+    uid.hudScale[0] = scale;
+    uid.hudScale[1] = scale;
+}
+
+/*
+====================
 UI_ApplyResolution
 
 full == qtrue  : apply everything, including the scoreboard and the
@@ -3943,6 +4014,7 @@ static void UI_ApplyResolution(qboolean full)
     CL_FillUIDef();
 
     UI_UpdateResolutionScale();
+    UI_UpdateHudScale();
 
     if (!uie.ResolutionChange) {
         return;
@@ -5060,6 +5132,10 @@ void UI_AddHud_f(void)
             hudList.AddObject(hud);
         }
 
+        // Added in OPM
+        //  Menus added with ui_addhud are HUD menus too
+        UI_MarkHudMenu(hud);
+
         hud->ShowMenu(NULL);
     } else {
         Com_DPrintf("Hud %s not found in menu system.\n", Cmd_Argv(1));
@@ -5325,6 +5401,9 @@ void CL_InitializeUI(void)
     ui_weaponsbartime  = Cvar_Get("ui_weaponsbartime", "2500", 1);
     ui_itemsbar        = Cvar_Get("ui_itemsbar", "0", 1);
     ui_hires_scaling   = Cvar_Get("ui_hires_scaling", "0", CVAR_ARCHIVE);
+    // Added in OPM
+    //  Scale of the in-game HUD; 1 = original size, 2 = twice as big
+    ui_hud_scale = Cvar_Get("ui_hud_scale", "1", CVAR_ARCHIVE);
     sound_overlay      = Cvar_Get("soundoverlay", "0", 0);
     ui_debugload       = Cvar_Get("ui_debugload", "0", 0);
     Cvar_Get("ui_signshader", "", 0);
@@ -5527,6 +5606,15 @@ void CL_InitializeUI(void)
     hud_compass = menuManager.FindMenu("hud_compass");
     // find the boss health hud
     hud_boss = menuManager.FindMenu("hud_boss");
+
+    // Added in OPM
+    //  These menus make up the in-game HUD, so they follow ui_hud_scale
+    UI_MarkHudMenu(hud_weapons);
+    UI_MarkHudMenu(hud_items);
+    UI_MarkHudMenu(hud_health);
+    UI_MarkHudMenu(hud_compass);
+    UI_MarkHudMenu(hud_boss);
+
     // find the stats screen
     missionLog = menuManager.FindMenu("StatsScreen");
     // find the connection menu

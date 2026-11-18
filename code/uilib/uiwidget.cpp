@@ -693,6 +693,7 @@ UIWidget::UIWidget()
     m_iFontAlignmentHorizontal = FONT_JUSTHORZ_CENTER;
     m_iFontAlignmentVertical   = FONT_JUSTVERT_CENTER;
     m_bVirtual                 = false;
+    m_bHudScaling              = false;
     m_scaleCvar                = NULL;
     m_enabledCvar              = "";
 
@@ -1056,18 +1057,10 @@ void UIWidget::Motion(void)
 
 void UIWidget::AlignPosition(void)
 {
-    if (m_bVirtual) {
-        vec2_t vNewVirtualScale;
+    vec2_t vNewScale;
 
-        SetVirtualScale(vNewVirtualScale);
-
-        scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewVirtualScale);
-    } else if (uid.bHighResScaling) {
-        scaleFrameVirtualRes(m_frame, m_vVirtualScale, uid.scaleRes);
-    } else {
-        vec2_t vNewVirtualScale = {1.0, 1.0};
-        scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewVirtualScale);
-    }
+    GetTargetScale(vNewScale);
+    scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewScale);
 
     if (m_flags & WF_STRETCH_VERTICAL) {
         m_frame.pos.y       = 0;
@@ -2142,21 +2135,19 @@ void UIWidget::ResetMotion(motion_t type)
 
 void UIWidget::Realign(void)
 {
-    bool bScaled = false;
+    bool   bScaled = false;
+    vec2_t vNewScale;
+
+    GetTargetScale(vNewScale);
 
     if (m_bVirtual) {
-        vec2_t vNewVirtualScale;
-
-        SetVirtualScale(vNewVirtualScale);
-
-        scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewVirtualScale);
+        scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewScale);
         bScaled = true;
-    } else if (uid.bHighResScaling) {
-        scaleFrameVirtualRes(m_frame, m_vVirtualScale, uid.scaleRes);
+    } else if (m_bHudScaling || uid.bHighResScaling) {
+        scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewScale);
         bScaled = true;
     } else {
-        vec2_t vNewVirtualScale = {1.0, 1.0};
-        bScaled                 = scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewVirtualScale);
+        bScaled = scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewScale);
     }
 
     if (m_flags & WF_STRETCH_VERTICAL) {
@@ -2409,6 +2400,8 @@ const vec2_t& UIWidget::getVirtualScale() const
 {
     if (m_bVirtual) {
         return m_vVirtualScale;
+    } else if (m_bHudScaling) {
+        return uid.hudScale;
     } else {
         return uid.scaleRes;
     }
@@ -2441,6 +2434,75 @@ void UIWidget::SetVirtualScale(vec2_t out)
     } else {
         out[0] = uid.vidWidth / 640.0;
         out[1] = uid.vidHeight / 480.0;
+    }
+}
+
+/*
+====================
+UIWidget::isHudScaling
+====================
+*/
+qboolean UIWidget::isHudScaling(void) const
+{
+    return m_bHudScaling;
+}
+
+/*
+====================
+UIWidget::SetHudScaling
+
+Added in OPM
+  Mark this widget (and its subtree) as part of the in-game HUD, so it uses
+  the player-selected HUD scale instead of the menu/UI scale.
+====================
+*/
+void UIWidget::SetHudScaling(qboolean enable)
+{
+    m_bHudScaling = enable;
+
+    for (int i = 1; i <= m_children.NumObjects(); i++) {
+        m_children.ObjectAt(i)->SetHudScaling(enable);
+    }
+}
+
+/*
+====================
+UIWidget::GetTargetScale
+
+Added in OPM
+  Compute the scale this widget should use. HUD widgets follow
+  ui_hud_scale, the rest keeps using the regular UI scale.
+====================
+*/
+void UIWidget::GetTargetScale(vec2_t out)
+{
+    vec2_t hudScale;
+
+    if (uid.hudScale[0] > 0.0f && uid.hudScale[1] > 0.0f) {
+        hudScale[0] = uid.hudScale[0];
+        hudScale[1] = uid.hudScale[1];
+    } else {
+        hudScale[0] = hudScale[1] = 1.0f;
+    }
+
+    if (m_bVirtual) {
+        // Virtual-resolution widgets (e.g. the compass) keep their own
+        // virtual scale, multiplied by the HUD scale when they belong to
+        // the HUD.
+        SetVirtualScale(out);
+
+        if (m_bHudScaling) {
+            out[0] *= hudScale[0];
+            out[1] *= hudScale[1];
+        }
+    } else if (m_bHudScaling) {
+        out[0] = hudScale[0];
+        out[1] = hudScale[1];
+    } else if (uid.bHighResScaling) {
+        out[0] = uid.scaleRes[0];
+        out[1] = uid.scaleRes[1];
+    } else {
+        out[0] = out[1] = 1.0f;
     }
 }
 
@@ -2484,18 +2546,10 @@ UIWidgetContainer::UIWidgetContainer()
 
 void UIWidgetContainer::AlignPosition(void)
 {
-    if (m_bVirtual) {
-        vec2_t vNewVirtualScale;
+    vec2_t vNewScale;
 
-        SetVirtualScale(vNewVirtualScale);
-
-        scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewVirtualScale);
-    } else if (uid.bHighResScaling) {
-        scaleFrameVirtualRes(m_frame, m_vVirtualScale, uid.scaleRes);
-    } else {
-        vec2_t vNewVirtualScale = {1.0, 1.0};
-        scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewVirtualScale);
-    }
+    GetTargetScale(vNewScale);
+    scaleFrameVirtualRes(m_frame, m_vVirtualScale, vNewScale);
 
     if (m_align & WA_LEFT) {
         m_frame.pos.x = 0;
